@@ -65,6 +65,9 @@ Python module that doesn't touch the vector store.
 Ran `pytest tests/unit/test_faithfulness_checker.py -v` locally.
 Result: 4 failed, 18 passed.
 
+**Reproduction commit link:** https://github.com/ditto-d/pathreview/commit/13cd7eaa516b8c786c76e9c26279d2873ee834d9
+
+
 Failures:
 - test_partial_support_returns_middle_score — expected 0.2 < score < 0.8, got 0.0
   (log: claims_count=1, supported_count=0, score=0.0)
@@ -77,3 +80,8 @@ Failures:
   at `context_text = " ".join([chunk.get("text", "") for chunk in context_chunks])`
   This is a separate bug from #152's core issue — chunk.get("text", "") only
   supplies the default for a *missing* key, not an explicit None value.
+
+
+**Blockers or open questions:**
+Deciding whether to fix the unrelated None-crash bug (test_none_context_chunk_text)
+in the same PR, or leave it out of scope and documented separately.
