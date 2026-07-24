@@ -58,3 +58,22 @@ crashes on startup, chromadb 0.4.22 is incompatible with NumPy 2.0
 (`np.float_` was removed). I reported it to the class and applied a local
 workaround. It doesn't block my issue, since the faithfulness checker is a pure
 Python module that doesn't touch the vector store.
+
+
+## Week 8 reproduction notes (for JOURNAL.md)
+
+Ran `pytest tests/unit/test_faithfulness_checker.py -v` locally.
+Result: 4 failed, 18 passed.
+
+Failures:
+- test_partial_support_returns_middle_score — expected 0.2 < score < 0.8, got 0.0
+  (log: claims_count=1, supported_count=0, score=0.0)
+- test_multiple_claims_varying_support — expected 0.2 < score < 0.8, got 0.0
+  (log: claims_count=2, supported_count=0, score=0.0)
+- test_multiple_context_chunks — expected score > 0.5, got 0.0
+  (not named in the original issue, but same root cause)
+- test_none_context_chunk_text — TypeError, not an assertion failure:
+  `TypeError: sequence item 0: expected str instance, NoneType found`
+  at `context_text = " ".join([chunk.get("text", "") for chunk in context_chunks])`
+  This is a separate bug from #152's core issue — chunk.get("text", "") only
+  supplies the default for a *missing* key, not an explicit None value.
