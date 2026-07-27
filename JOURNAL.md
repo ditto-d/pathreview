@@ -60,27 +60,23 @@ workaround. It doesn't block my issue, since the faithfulness checker is a pure
 Python module that doesn't touch the vector store.
 
 
-## Week 8 reproduction notes (for JOURNAL.md)
-
-Ran `pytest tests/unit/test_faithfulness_checker.py -v` locally.
-Result: 4 failed, 18 passed.
+## Week 8 — Reproduction & solution planning
 
 **Reproduction commit link:** https://github.com/ditto-d/pathreview/commit/13cd7eaa516b8c786c76e9c26279d2873ee834d9
 
+**Reproduction summary:**
+Ran `pytest tests/unit/test_faithfulness_checker.py -v` locally. Result: 4
+failed, 18 passed. Three failures (`test_partial_support_returns_middle_score`,
+`test_multiple_claims_varying_support`, `test_multiple_context_chunks`) confirm
+the reported bug: `_is_supported()` only returns true/false, so `check()` can
+only ever score 0.0 or 1.0 per claim and can never land in the expected middle
+range even when context partially supports a claim. A fourth failure,
+`test_none_context_chunk_text`, is a separate crash bug (`TypeError`) in
+`check()`'s context concatenation, unrelated to the reported scoring issue.
 
-Failures:
-- test_partial_support_returns_middle_score — expected 0.2 < score < 0.8, got 0.0
-  (log: claims_count=1, supported_count=0, score=0.0)
-- test_multiple_claims_varying_support — expected 0.2 < score < 0.8, got 0.0
-  (log: claims_count=2, supported_count=0, score=0.0)
-- test_multiple_context_chunks — expected score > 0.5, got 0.0
-  (not named in the original issue, but same root cause)
-- test_none_context_chunk_text — TypeError, not an assertion failure:
-  `TypeError: sequence item 0: expected str instance, NoneType found`
-  at `context_text = " ".join([chunk.get("text", "") for chunk in context_chunks])`
-  This is a separate bug from #152's core issue — chunk.get("text", "") only
-  supplies the default for a *missing* key, not an explicit None value.
+**PLAN.md link:** https://github.com/ditto-d/pathreview/blob/fix/152-faithfulness-short-claims/PLAN.md
 
+**Walkthrough video (recommended):** [not recorded]
 
 **Blockers or open questions:**
 Deciding whether to fix the unrelated None-crash bug (test_none_context_chunk_text)
