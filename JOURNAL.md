@@ -81,3 +81,49 @@ range even when context partially supports a claim. A fourth failure,
 **Blockers or open questions:**
 Deciding whether to fix the unrelated None-crash bug (test_none_context_chunk_text)
 in the same PR, or leave it out of scope and documented separately.
+
+## Week 9 — Solution building & PR submission
+
+### Check-in 1 (mid-week)
+
+**Current progress:**
+Environment set up and PLAN.md finalized from Week 8. Hadn't yet started
+implementing `_support_ratio()` or the `check()` changes — the code itself
+was still at the Week 8 planning stage going into this check-in.
+
+**Next steps:**
+Implement `_support_ratio()` and `_tokenize()` in
+`rag/evaluator/faithfulness_checker.py`, update `check()` to use the new
+continuous scoring instead of the boolean `_is_supported()` count, add a
+regression test for the short-claim symptom, then run the full test suite
+and `make check` before opening a PR.
+
+**Blockers:**
+None yet at this point — implementation hadn't started.
+
+### Check-in 2 (end of week)
+
+**PR link:** https://github.com/ditto-d/pathreview/pull/1
+
+**Branch:** fix/152-faithfulness-short-claims
+
+**What you built:**
+Replaced the faithfulness checker's boolean support check with a
+continuous scoring method (`_support_ratio`), so claims are scored based
+on the fraction of their meaningful tokens found in context instead of a
+fixed pass/fail overlap threshold. Also added punctuation-aware
+tokenization and fixed a related crash on explicit `None` context text.
+
+**Tests added or updated:**
+`tests/unit/test_faithfulness_checker.py` — added
+`test_short_claim_fully_supported_scores_high`, a regression test for the
+exact symptom in the issue. All 23 tests in the file pass.
+
+**Self-review confirmation:** [x] make check passes (for my file — ruff
+clean on `faithfulness_checker.py` and the test file; ~180 pre-existing
+lint issues remain in unrelated files, documented in the PR)
+[x] make test-unit passes (for my file - 23/23 in
+`test_faithfulness_checker.py`; noted one pre-existing unrelated failure
+in `test_batch_processor.py` in the PR)
+
+**Draft PR feedback received from:** none
