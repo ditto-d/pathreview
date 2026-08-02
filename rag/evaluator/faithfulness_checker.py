@@ -1,9 +1,31 @@
 """Check if generated feedback is supported by retrieved context."""
 
+import math
 import re
+
 import structlog
 
 logger = structlog.get_logger()
+
+STOP_WORDS = {
+    "a",
+    "an",
+    "the",
+    "is",
+    "are",
+    "was",
+    "were",
+    "be",
+    "been",
+    "and",
+    "or",
+    "but",
+    "in",
+    "of",
+    "to",
+    "for",
+    "that",
+}
 
 
 class FaithfulnessChecker:
@@ -17,11 +39,16 @@ class FaithfulnessChecker:
             context_chunks: Retrieved context chunks
 
         Returns:
-            Faithfulness score 0.0-1.0 (ratio of supported claims)
+            Faithfulness score 0.0-1.0. Each claim contributes a continuous
+            support ratio (fraction of its meaningful tokens found in
+            context); the score is the average ratio across all claims.
         """
         if not feedback or not context_chunks:
-            logger.info("faithfulness_empty_input", has_feedback=bool(feedback),
-                       has_chunks=bool(context_chunks))
+            logger.info(
+                "faithfulness_empty_input",
+                has_feedback=bool(feedback),
+                has_chunks=bool(context_chunks),
+            )
             return 0.0
 
         # Extract key claims from feedback (sentences)
@@ -30,21 +57,18 @@ class FaithfulnessChecker:
             logger.info("faithfulness_no_claims_extracted")
             return 0.5  # Default to neutral if no extractable claims
 
-        # Concatenate context text
-        context_text = " ".join([
-            chunk.get("text", "") for chunk in context_chunks
-        ])
+        # Concatenate context text. chunk.get("text") or "" handles both a
+        # missing "text" key and an explicit {"text": None} value; the old
+        # chunk.get("text", "") only caught the missing-key case and crashed.
+        context_text = " ".join([chunk.get("text") or "" for chunk in context_chunks])
 
-        # Check each claim for support
-        supported = 0
-        for claim in claims:
-            if self._is_supported(claim, context_text):
-                supported += 1
+        total_ratio = sum(self._support_ratio(claim, context_text) for claim in claims)
 
-        score = supported / len(claims) if claims else 0.0
+        score = total_ratio / len(claims) if claims else 0.0
 
-        logger.info("faithfulness_checked", claims_count=len(claims),
-                   supported_count=supported, score=score)
+        logger.info(
+            "faithfulness_checked", claims_count=len(claims), average_ratio=score, score=score
+        )
 
         return score
 
@@ -59,9 +83,23 @@ class FaithfulnessChecker:
             List of claims (sentences)
         """
         # Split by sentence (simple regex)
-        sentences = re.split(r'[.!?]+', text)
+        sentences = re.split(r"[.!?]+", text)
         claims = [s.strip() for s in sentences if s.strip() and len(s.strip()) > 10]
         return claims[:10]  # Limit to 10 claims for scoring
+
+    @staticmethod
+    def _tokenize(text: str) -> set[str]:
+        """Tokenize text into lowercase words with punctuation removed.
+
+        Args:
+             text: Input text
+
+        Returns:
+               Set of lowercase word tokens with surrounding punctuation removed.
+        """
+
+        raw_tokens = text.lower().split()
+        return {token.strip(".,!?;:\"'") for token in raw_tokens}
 
     @staticmethod
     def _is_supported(claim: str, context: str) -> bool:
@@ -81,8 +119,35 @@ class FaithfulnessChecker:
         # Require at least some meaningful overlap
         overlap = claim_tokens & context_tokens
         # Filter out common stop words
-        stop_words = {'a', 'an', 'the', 'is', 'are', 'was', 'were', 'be', 'been',
-                     'and', 'or', 'but', 'in', 'of', 'to', 'for', 'that'}
-        meaningful_overlap = overlap - stop_words
+
+        meaningful_overlap = overlap - STOP_WORDS
 
         return len(meaningful_overlap) >= 2
+
+    @staticmethod
+    def _support_ratio(claim: str, context: str) -> float:
+        """Calculate what fraction of a claim's meaningful tokens are in context.
+
+        Unlike _is_supported, which returns a fixed True/False based on an absolute
+        overlap threshold, this returns a continuous score so short claims aren't
+        structurally unable to score highly. A claim needs at least half its
+        meaningful tokens present in context to count as fully supported (rounded
+        up, so a 2-token claim still needs both tokens, not just one).
+
+        Args:
+            claim: Claim text
+            context: Context text
+
+        Returns:
+            Ratio in [0.0, 1.0]
+        """
+        claim_tokens = FaithfulnessChecker._tokenize(claim) - STOP_WORDS
+        if not claim_tokens:
+            return 0.0
+
+        context_tokens = FaithfulnessChecker._tokenize(context) - STOP_WORDS
+        overlap = claim_tokens & context_tokens
+
+        required_for_full_credit = math.ceil(len(claim_tokens) / 2)
+        ratio = len(overlap) / required_for_full_credit
+        return min(1.0, ratio)
