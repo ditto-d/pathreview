@@ -1,6 +1,6 @@
 # JOURNAL
 
-## Week 7 — Issue selection
+## Week 7 - Issue selection
 
 **Issue link:** https://github.com/ascherj/pathreview/issues/152
 
@@ -60,7 +60,7 @@ workaround. It doesn't block my issue, since the faithfulness checker is a pure
 Python module that doesn't touch the vector store.
 
 
-## Week 8 — Reproduction & solution planning
+## Week 8 - Reproduction & solution planning
 
 **Reproduction commit link:** https://github.com/ditto-d/pathreview/commit/13cd7eaa516b8c786c76e9c26279d2873ee834d9
 
@@ -82,7 +82,7 @@ range even when context partially supports a claim. A fourth failure,
 Deciding whether to fix the unrelated None-crash bug (test_none_context_chunk_text)
 in the same PR, or leave it out of scope and documented separately.
 
-## Week 9 — Solution building & PR submission
+## Week 9 - Solution building & PR submission
 
 ### Check-in 1 (mid-week)
 
@@ -127,3 +127,94 @@ lint issues remain in unrelated files, documented in the PR)
 in `test_batch_processor.py` in the PR)
 
 **Draft PR feedback received from:** none
+
+
+## Week 10 - Iteration & reflection
+
+### Reviewer feedback
+
+**Feedback received:** [ ] Yes  [x] No,  still awaiting review
+
+**Summary of feedback:**
+No review came in on the PR itself. I did get written grader feedback on
+my Week 9 submission, which I'm treating as the closest equivalent and
+responding to below.
+
+**How you responded:**
+[leave blank, no PR-thread feedback to respond to]
+
+### Reflection
+
+**What I built:**
+Issue #152 was a scoring bug in the faithfulness checker: `_is_supported()`
+required at least 2 overlapping meaningful words between a claim and its
+source context, so a short claim like "Knows Python", which has only one
+meaningful word after stripping filler, could never be marked as
+supported, no matter how well the context backed it up. I fixed this by
+adding a new method, `_support_ratio()`, that scores each claim
+continuously (what fraction of its meaningful words appear in context)
+instead of forcing a hard pass/fail, and updated `check()` to average
+those ratios instead of counting boolean hits. I left `_is_supported()`
+untouched, since five existing tests call it directly and expect a real
+boolean back. Along the way I found and fixed a second, unrelated bug in
+the same function, a crash on an explicit `{"text": None}` value, and
+documented that as a deliberate "while I'm here" fix rather than silent
+scope creep.
+
+**What the grader feedback got right, and what I'm taking from it:**
+The Week 9 feedback praised the root-cause tracing (symptom → fixed
+threshold → continuous replacement) and the decision to leave
+`_is_supported()` alone rather than risk breaking its existing callers.
+That instinct, minimize blast radius when you're new to a codebase,
+wasn't something I fully appreciated as a *named* principle going in; it
+came out of practical necessity, since I could see five tests depending on
+that function's boolean contract. Having a grader name it back to me as
+"good instinct" helped me understand that it's a transferable habit, not
+just something specific to this one bug.
+
+The critique was sharper and more useful, though: I only wrote one new
+test, `test_short_claim_fully_supported_scores_high`, which validates the
+issue's repro case but doesn't touch the internal logic of
+`_support_ratio()` directly. The grader pointed out that method actually
+has several distinct branches worth testing on their own, the
+`ceil(len/2)` rounding behavior, the zero-meaningful-token guard that
+returns `0.0` early, and the punctuation-stripping in `_tokenize()`. I
+tested all of these *indirectly*, by hand, while debugging the formula
+against the existing 23 tests (that's literally how I caught the 0.833
+vs. <0.8 failure), but none of that verification made it into the actual
+test suite as its own assertion. In hindsight, that's a real gap: the
+manual tracing I did to fix the formula bug was exactly the kind of
+insight that should have become a permanent test, not just a debugging
+session I threw away once the numbers worked out.
+
+**What surprised me:**
+How much more time the formula tuning took than the initial design. I
+assumed once I had the right *idea*, continuous ratio instead of
+boolean, the implementation would be close to done. Instead, my first
+formula (`2 * overlap / total`) passed almost everything but failed one
+test by 0.033, because it let a 2-token claim get full credit for
+matching just one word. Finding and fixing that required tracing actual
+numbers by hand against multiple test cases, not just reasoning about the
+formula abstractly. 
+
+**What I'd do differently:**
+Two concrete things, both pointing the same direction. First, per the
+grader's feedback, I'd write focused unit tests for `_support_ratio()`'s
+internal branches as I built them, not just one end-to-end regression
+test — the zero-token guard and the rounding behavior each deserved their
+own `test_support_ratio_...` case, the same way `_is_supported()` already
+has five dedicated tests. Second,I'd run the full test suite against a new 
+formula before trusting it, rather than assuming it was correct and only 
+discovering the gap when pytest actually failed. Both of these point at
+the same lesson: verify deliberately, in writing, as tests, don't let 
+verification happen accidentally through one-off debugging and then 
+get thrown away once the numbers work out."
+
+**What I'm proud of:**
+Catching the second bug (the `None`-crash) on my own, in code I was
+already touching, and making a deliberate, documented call about whether
+to fix it in-scope rather than either ignoring it or fixing it silently.
+Also proud of actually diagnosing *why* the bug happened at the token
+level, tracing "Knows Python" down to a single surviving meaningful
+token, rather than just patching symptoms until the named tests turned
+green.
