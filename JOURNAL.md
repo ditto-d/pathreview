@@ -133,88 +133,82 @@ in `test_batch_processor.py` in the PR)
 
 ### Reviewer feedback
 
-**Feedback received:** [ ] Yes  [x] No,  still awaiting review
+**Feedback received:** [ ] Yes  [x] No — still awaiting review
 
 **Summary of feedback:**
-No review came in on the PR itself. I did get written grader feedback on
-my Week 9 submission, which I'm treating as the closest equivalent and
-responding to below.
+No review came in on the PR.
 
 **How you responded:**
-[leave blank, no PR-thread feedback to respond to]
+
+
+---
 
 ### Reflection
 
-**What I built:**
-Issue #152 was a scoring bug in the faithfulness checker: `_is_supported()`
-required at least 2 overlapping meaningful words between a claim and its
-source context, so a short claim like "Knows Python", which has only one
-meaningful word after stripping filler, could never be marked as
-supported, no matter how well the context backed it up. I fixed this by
-adding a new method, `_support_ratio()`, that scores each claim
-continuously (what fraction of its meaningful words appear in context)
-instead of forcing a hard pass/fail, and updated `check()` to average
-those ratios instead of counting boolean hits. I left `_is_supported()`
-untouched, since five existing tests call it directly and expect a real
-boolean back. Along the way I found and fixed a second, unrelated bug in
-the same function, a crash on an explicit `{"text": None}` value, and
-documented that as a deliberate "while I'm here" fix rather than silent
-scope creep.
+**What was harder than you expected?**
+Getting the actual scoring formula right took far longer than designing
+the idea behind it. I knew I wanted `_support_ratio()` to replace the
+boolean `_is_supported()` check with something continuous, and that part
+felt obvious once I understood the bug. But my first version, doubling
+the overlap count and dividing by the claim's total tokens, passed
+almost every test and then failed one, `test_multiple_claims_varying_support`,
+by a small margin: 0.833 instead of the required under-0.8. Tracing that
+down meant working through the actual token math by hand for a 2-token
+claim ("Python expert.") and realizing the formula gave full credit for
+matching just one word out of two. Fixing it took switching to
+`math.ceil(len(claim_tokens) / 2)` as the number of matches required for
+full credit, rounding up instead of a flat multiplier.
 
-**What the grader feedback got right, and what I'm taking from it:**
-The Week 9 feedback praised the root-cause tracing (symptom → fixed
-threshold → continuous replacement) and the decision to leave
-`_is_supported()` alone rather than risk breaking its existing callers.
-That instinct, minimize blast radius when you're new to a codebase,
-wasn't something I fully appreciated as a *named* principle going in; it
-came out of practical necessity, since I could see five tests depending on
-that function's boolean contract. Having a grader name it back to me as
-"good instinct" helped me understand that it's a transferable habit, not
-just something specific to this one bug.
+**What did you learn about working in a large codebase?**
+The biggest shift was realizing I couldn't just make the bug go away,
+I had to figure out exactly what "not breaking anything else" meant.
+`_is_supported()` had five existing tests calling it directly and
+asserting a real boolean back, so instead of rewriting it, I built
+`_support_ratio()` as a separate method and only changed what `check()`
+called. That's a different kind of thinking than solo projects, where I'd
+just change whatever needed changing. I also learned that a single
+function can hide more than one bug, while fixing #152's scoring issue,
+I found an unrelated crash in the same function (`chunk.get("text", "")`
+not handling an explicit `None` value) that actually overlapped with a
+different, already-claimed issue, #153. Deciding whether to fix it
+in-scope or leave it alone was a real judgment call, not something with
+an obvious right answer, and I had to explain that reasoning explicitly
+in my PR rather than just picking one option silently.
 
-The critique was sharper and more useful, though: I only wrote one new
-test, `test_short_claim_fully_supported_scores_high`, which validates the
-issue's repro case but doesn't touch the internal logic of
-`_support_ratio()` directly. The grader pointed out that method actually
-has several distinct branches worth testing on their own, the
-`ceil(len/2)` rounding behavior, the zero-meaningful-token guard that
-returns `0.0` early, and the punctuation-stripping in `_tokenize()`. I
-tested all of these *indirectly*, by hand, while debugging the formula
-against the existing 23 tests (that's literally how I caught the 0.833
-vs. <0.8 failure), but none of that verification made it into the actual
-test suite as its own assertion. In hindsight, that's a real gap: the
-manual tracing I did to fix the formula bug was exactly the kind of
-insight that should have become a permanent test, not just a debugging
-session I threw away once the numbers worked out.
+**How did AI tools help — and where did they fall short?**
+AI was most useful for offloading tedious, mechanical work I could have
+done by hand but would have been slow and error-prone: hand-tracing which
+tokens survived stopword filtering for a given claim, working out what a
+formula would produce for a specific test case, and drafting the PR description
+text from my own notes and decisions. That let me
+spend my own attention on the actual design questions, whether to touch
+_is_supported(), how to scope the None-crash fix, instead of on
+manual arithmetic and formatting. It fell short with the formula itself. An
+AI-suggested version looked correct on paper but still failed a real test
+by a specific margin (0.833 vs. under 0.8), so the test suite, not
+reasoning about the formula, was what actually caught the bug. AI was a
+tool for delegating grunt work, not a substitute for checking the real output.
 
-**What surprised me:**
-How much more time the formula tuning took than the initial design. I
-assumed once I had the right *idea*, continuous ratio instead of
-boolean, the implementation would be close to done. Instead, my first
-formula (`2 * overlap / total`) passed almost everything but failed one
-test by 0.033, because it let a 2-token claim get full credit for
-matching just one word. Finding and fixing that required tracing actual
-numbers by hand against multiple test cases, not just reasoning about the
-formula abstractly. 
+**What would you do differently if you started over?**
+Two concrete things. First, I'd write focused unit tests for
+`_support_ratio()`'s internal logic as I built it, the zero-token guard,
+the `ceil`-based threshold, the punctuation-stripping in `_tokenize()` —
+instead of relying on one end-to-end regression test
+(`test_short_claim_fully_supported_scores_high`) plus informal manual
+tracing that never became permanent tests. I actually verified those edge
+cases by hand while debugging, but that verification disappeared once the
+numbers worked out instead of becoming something the next contributor
+could rely on. Second, I'd run the full test suite against a new formula
+immediately after writing it, rather than assuming it was probably right
+and finding the gap only when a specific test failed.
 
-**What I'd do differently:**
-Two concrete things, both pointing the same direction. First, per the
-grader's feedback, I'd write focused unit tests for `_support_ratio()`'s
-internal branches as I built them, not just one end-to-end regression
-test — the zero-token guard and the rounding behavior each deserved their
-own `test_support_ratio_...` case, the same way `_is_supported()` already
-has five dedicated tests. Second,I'd run the full test suite against a new 
-formula before trusting it, rather than assuming it was correct and only 
-discovering the gap when pytest actually failed. Both of these point at
-the same lesson: verify deliberately, in writing, as tests, don't let 
-verification happen accidentally through one-off debugging and then 
-get thrown away once the numbers work out."
-
-**What I'm proud of:**
-Catching the second bug (the `None`-crash) on my own, in code I was
-already touching, and making a deliberate, documented call about whether
-to fix it in-scope rather than either ignoring it or fixing it silently.
-Also proud of actually diagnosing *why* the bug happened at the token
-level, tracing "Knows Python" down to a single surviving meaningful
-token, rather than just patching symptoms until the named tests turned
-green.
+**What are you most proud of from this module?**
+Finding the second bug, the `None`-crash, on my own, in code I was
+already touching, and making a deliberate, documented decision about
+whether to fix it in the same PR rather than either ignoring it or
+quietly bundling it in. I'm also proud of actually tracing the bug down
+to the token level instead of stopping at "the named tests pass", I
+could explain exactly why "Knows Python" only has one meaningful token
+left after stopword removal, and why that structurally locks it out of
+the old `>=2` threshold no matter how good the context is. That's the
+kind of understanding that made the fix defensible, not just functional.
